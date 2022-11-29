@@ -3,27 +3,266 @@ import inspect
 import os
 import json
 import sys
-import numpy
-import numpy.linalg
-import time
-import hashlib
-from distutils.file_util import copy_file
 
-def checksum_file_hexdigest(fn):
-    chunksize = 1024*1024
-    sha = hashlib.sha256()
-    with open(fn,'rb') as f:
-        data = f.read(chunksize)
-        sha.update(data)
-    return sha.hexdigest()
+key = "test key"
 
-def get_one_way_diff_list(a,b):
-    l = []
-    for i in a:
-        if i not in b:
-            #print(i,' not in b')
-            l.append(i)
-    return l
+#-------------------- old code pieces
+'''
+def bulk_decrypt_lists(list_inputs,key):
+    #print(list_inputs)
+    cl = []
+    tl = []
+    for c in list_inputs:
+        cl.append("".join(c))
+    #print(cl)
+    for c in cl:
+        #print(c)
+        d=decrypt(c,key)
+        #print(d)
+        tl.append(d)
+    #print(tl,cl)
+    return tl,cl
+
+def bulk_decrypt_lines(lines,key):
+    tl = []
+    for c in lines:
+        tl.append(decrypt(c,key))
+    return tl
+
+def encrypt_file(filename, filenameout, key):
+    # need a filesize header on encrypted file to deal with length mismatch
+    # pads size to 
+    #open(filename,mode='r') as f:
+    #    f.read(
+    k = key
+    if len(k) < 4:
+        return []
+    sz = os.path.getsize(filename)
+    data = None
+    chunksize = 240
+    bytesread = 0
+    filechunks = sz // 240
+    chunksize = 240
+    m = float(chunksize)/float(len(key))
+    
+    val = (4.0/3.0)*chunksize
+    
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    lenbinsz = len(bin(sz)[2:])
+    lenbinbytesz = len(bin(sz)[2:]) // 8
+    paddedbinsz = '0'*((lenbinbytesz*8)-lenbinsz) + (bin(sz)[2:])
+    with open(filename,mode='rb') as f:
+        with open(filenameout,mode='wb') as fo:
+            
+            intsz = bin(sz)[2:]
+            fo.write(bytes(intsz,'utf-8'))
+            fo.write(bytes('\n','utf-8'))
+            endchunk = False
+            while not endchunk:
+                
+                data = f.read(chunksize)
+                if len(data) != 240:
+                    endchunk = True
+                    padding = bytes('_'*(240-len(data)),'utf-8')
+                    data = data + padding
+
+                ciphchunk = []
+                #240 bytes
+                # zip(data,k)
+                # 24 bits each
+                # or 3 bytes
+                # 1920 bits or 80 sets of 24
+                for i in range(80):
+                    databytes = data[(i*3):(i*3)+3]
+                    keys = k[(i*4):(i*4)+4]
+
+                    #print(databytes,keys)
+                    datachunks = ['0'*(8-len(bin(b)[2:])) + bin(b)[2:] for b in databytes]
+                    keychunks =  [getbinval(b) for b in keys]
+
+                    #print(datachunks,keychunks)
+                    
+                    datachunks = [datachunks[0][0:6],
+                                  datachunks[0][6:] + datachunks[1][0:4],
+                                  datachunks[1][4:] + datachunks[2][0:2],
+                                  datachunks[2][2:]]
+
+                    keyCycles = []
+                    for ke in keys:
+                        keyCycles.append(cycleselect(alphalist.index(ke)))
+                    #print(keyCycles)
+                    ciphchunks = [ cyclemult(datachunks[iii],keyCycles[iii]) for iii in range(4)]
+                    #print(ciphchunks)
+                    ciphbinstrings = [ ciphchunks[0] + ciphchunks[1][0:2],
+                                       ciphchunks[1][2:] + ciphchunks[2][0:4],
+                                       ciphchunks[2][4:] + ciphchunks[3]]
+
+                    #print(ciphbinstrings)
+                    ciphbytes = [bitstring_to_bytes("".join(ciphbinstrings[0])),
+                                bitstring_to_bytes("".join(ciphbinstrings[1])),
+                                bitstring_to_bytes("".join(ciphbinstrings[2]))]
+                    #print(ciphbytes)
+                                            
+                    fo.write(ciphbytes[0])
+                    fo.write(ciphbytes[1])
+                    fo.write(ciphbytes[2])
+                    
+def decrypt_file(filename,filenameout,key):
+    sz = os.path.getsize(filename)
+    szlength = (sz % 240)
+    k = key
+
+    if len(k) < 4:
+        return []
+    data = None
+    chunksize = 240
+    bytesread = 0
+    filechunks = (sz-szlength) // 240
+    chunksize = 240
+    m = float(chunksize)/float(len(key))
+    val = (4.0/3.0)*chunksize
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+
+    with open(filename,mode='rb') as f:
+        with open(filenameout,mode='wb') as fo:
+
+            fileLengthBitBytes = f.read(szlength)
+            fileLengthBits = [ chr(int(i)) for i in fileLengthBitBytes ]
+            #print(fileLengthBits)
+            fileLengthBitString= "".join(fileLengthBits[0:-1])
+            fileSz = int(fileLengthBitString,2)
+            for z in range(filechunks):
+                
+                data = f.read(chunksize)
+                ciphchunk = []
+                #240 bytes
+                # zip(data,k)
+                # 24 bits each
+                # or 3 bytes
+                # 1920 bits or 80 sets of 24        or 80 sets of 3 bytes
+                for i in range(80):
+                    databytes = data[(i*3):(i*3)+3]
+                    keys = k[(i*4):(i*4)+4]
+
+                    #print(databytes,keys)
+                    bindatachunks = ['0'*(8-len(bin(b)[2:])) + bin(b)[2:] for b in databytes]
+                    keychunks =  [getbinval(b) for b in keys]
+
+                    #print(bindatachunks,keychunks)
+                    
+                    bindatachunks = [bindatachunks[0][0:6],
+                                  bindatachunks[0][6:] + bindatachunks[1][0:4],
+                                  bindatachunks[1][4:] + bindatachunks[2][0:2],
+                                  bindatachunks[2][2:]]
+                    #print(bindatachunks)
+                    
+                    keyCycles = []
+                    
+                    for ke in keys:
+                        keyCycles.append(inversecycle(cycleselect(alphalist.index(ke))))
+                        
+                    #print(keyCycles)
+                    
+                    ciphchunks = [ cyclemult(bindatachunks[ciphcount],keyCycles[ciphcount]) for ciphcount in range(4)]
+                    #print(ciphchunks)
+                    ciphbinstrings = [ ciphchunks[0] + ciphchunks[1][0:2],
+                                       ciphchunks[1][2:] + ciphchunks[2][0:4],
+                                       ciphchunks[2][4:] + ciphchunks[3]]
+
+                    #print(ciphbinstrings)
+                    ciphbytes = [bitstring_to_bytes("".join(ciphbinstrings[0])),
+                                bitstring_to_bytes("".join(ciphbinstrings[1])),
+                                bitstring_to_bytes("".join(ciphbinstrings[2]))]
+                    #print(ciphbytes)
+
+                    if z!=filechunks-1:                      
+                        fo.write(ciphbytes[0])
+                        fo.write(ciphbytes[1])
+                        fo.write(ciphbytes[2])
+                    else:
+                        #32byte block   32,33,34  35 byte file
+                        #test this for off by one
+                        currentByteBlock = z*240 + i*3
+                        if (currentByteBlock - fileSz) >= 0:
+                            #check that this breaks out of the function
+                            break    
+                        elif (currentByteBlock+1 - fileSz) == 0:
+                            fo.write(ciphbytes[0])
+                        elif (currentByteBlock+2 - fileSz) == 0:
+                            fo.write(ciphbytes[0])
+                            fo.write(ciphbytes[1])
+                        else:
+                            fo.write(ciphbytes[0])
+                            fo.write(ciphbytes[1])
+                            fo.write(ciphbytes[2])
+
+def bulk_encrypt_lines(text_lines,key):
+    ciph_lines = []
+    for t in text_lines:
+        ciph=encrypt(t,key)
+        ciph_lines.append(ciph)
+    return ciph_lines
+
+
+                
+'''
+
+def diff(fileList, folder1, folder2):
+    for f in fileList:
+        with open(str(folder1) + '\\' + f, 'rb') as file1, open(str(folder2) + '\\' + f, 'rb') as file2:
+            data1 = file1.read()
+            data2 = file2.read()
+            #print('-------------')
+            #print(data1)
+            #print('-------------')
+            #print(data2)
+
+        if data1 != data2:
+            print(f," Files do not match.")
+        else:
+            print(f," Files match.")
+
+def array_index(arr, indices):
+    if len(indices)==0:
+        return arr
+    return multiget_rec(arr[indices[0]], indices[1:])
+'''
+whole_file_size = len(str(directory_string))*2 + 2 + s
+    whole_file_size = len(str(whole_file_size)) + whole_file_size + 1
+'''
+'''
+def get_files_directory(startpath,prefix):
+    if not os.path.isdir(startpath):
+        print('not a directory')
+        return False
+
+    listOfFiles = []
+    rolling_crypted_size_count = 0
+    chunksize = 240
+    
+    for (dirpath, dirnames, filenames) in os.walk(startpath):
+        for file in filenames:
+            
+            sz = os.path.getsize(os.path.join(dirpath, file))
+            
+            fileSz = ( sz % 240 )
+            filechunks = sz // 240
+    
+            crypted_size = (filechunks*chunksize) + ( 0 if fileSz==0 else chunksize)
+            
+            relativepath = os.path.relpath(prefix,startpath)
+            
+            #ff = str(os.path.join(startpath)) - str(os.path.join(dirpath, file))
+            #listOfFiles += [ [os.path.join(dirpath, file), rolling_count, sz] ]
+            relative_file_name_length = len(relativepath)
+            listOfFiles += [ [relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz] ]
+            rolling_crypted_size_count += crypted_size
+    return listOfFiles
+'''
 
 def get_files_directory(startpath,remove_prefix=''):
     #walk file directory making a relative path list of each file
@@ -34,228 +273,125 @@ def get_files_directory(startpath,remove_prefix=''):
     listOfFiles = []
     dirpaths = []
     rolling_count = 0
+
+    listOfFiles = []
+    rolling_crypted_size_count = 0
+    chunksize = 240
+    
     for (dirpath, dirnames, filenames) in os.walk(startpath):
         if not dirpath in dirnames:
-            dirpaths.append(dirpath.removeprefix(remove_prefix))
+            dirpaths.append([len(dirpath.removeprefix(remove_prefix)),dirpath.removeprefix(remove_prefix)])
         for file in filenames:
+
+            sz = os.path.getsize(os.path.join(dirpath, file))
+            
+            fileSz = ( sz % 240 )
+            filechunks = sz // 240
+    
+            crypted_size = (filechunks*chunksize) + ( 0 if fileSz==0 else chunksize)
+
             relativepath = str(os.path.join(dirpath, file))
-            listOfFiles +=  [relativepath.removeprefix(remove_prefix)]
-    print (listOfFiles,dirpaths)
+            relativepath = os.path.relpath(relativepath,remove_prefix)
+            
+            listOfFiles += [ [len(relativepath),relativepath, rolling_crypted_size_count, crypted_size, sz] ]
+            rolling_crypted_size_count += crypted_size
+            
     return [listOfFiles,dirpaths]
 
-def makeChecksumFiles(startpath,folder_prefix='',file_appendix=''):
-    #can't have local folder path be 
-    files,dirs = get_files_directory(startpath)
-    sorted(files)
-    sorted(dirs)
-    hashes = []
-    with open(folder_prefix + '\\' + os.path.relpath(startpath,folder_prefix) + file_appendix + '.files_hashes.txt','w') as f:
-        for i in files:
-            h = checksum_file_hexdigest(i)
-            hashes.append(h)
-            f.write(i + '|' + str(h) + '\n')
-    with open(folder_prefix + '\\' + os.path.relpath(startpath,folder_prefix) + file_appendix + '.directory_structure.txt','w') as f:
-            f.write(str(json.dumps([files,dirs])))
-    return [files,hashes,dirs]
-
-def dedupFolder(startpath,folder_prefix='',file_prefix=''):
-    makeChecksumFiles(startpath,folder_prefix,file_prefix)
-    
-
-def sync_missing_files_source_to_dest(fs,ds,source_prefix='',target_prefix='',makeHistoryHashMismatchedFiles=False,overwriteHashMismatcheFiles=False):
-    for i in ds:
-        try:
-            os.makedirs(os.path.dirname(target_prefix + '\\' + i))
-        except FileExistsError:
-            pass
-        except FileNotFoundError:
-            pass
-        except PermissionError:
-            print('Permission Error when making directory for:',target_prefix + '\\' + i)
-            pass
-
-    for i in fs:
-        print('copying-----',i)
-        try:
-            os.makedirs(os.path.dirname(target_prefix + '\\' + i))
-        except FileExistsError:
-            pass
-        except FileNotFoundError:
-            pass
-        except PermissionError:
-            print('Permission Error when making directory for:',target_prefix + '\\' + i)
-            pass
-        copy_file((source_prefix + '\\' + i), os.path.dirname(target_prefix + '\\' + i), True,True, False, verbose=True,dry_run=False)
-
-#--------------------------------------------
-        #
-        #
-        #       makeInitialChecksumFiles
-        #       History on Hash Mismatch
-        #       verbose
-        #       overwrite Hash mismatches or make copy(history files) or 
-        #       
-        #       makeChecksumsAtEnd
-
-        
-def sync(sourceAbsPath,sourcePrefix,targetAbsPath,targetPrefix,makeChecksumFiles=False,makeHistoryHashMismatchedFiles=False,overwriteHashMismatcheFiles=False,verbose=True):
-    print('getting source dirs')
-    source_files,source_directories = get_files_directory(sourceAbsPath,sourcePrefix)
-    print('getting target dirs')
-    target_files,target_directories = get_files_directory(targetAbsPath,targetPrefix)
-    print('getting diff lists')
-    st_files = get_one_way_diff_list(source_files,target_files)
-    ts_files = get_one_way_diff_list(target_files,source_files)
-    st_dirs = get_one_way_diff_list(source_directories,target_directories)
-    ts_dirs = get_one_way_diff_list(target_directories,source_directories)
-
-    source_sorted_files, source_hashes = [],[]
-    target_sorted_files, target_hashes = [],[]
-#    if makeChecksumFiles:
-#        source_sorted_files,source_hashes,source_dirs = makeChecksumFiles(sourceAbsPath,sourcePrefix)
-#        target_sorted_files,target_hashes,target_dirs = makeChecksumFiles(targetAbsPath,targetPrefix)
-
-#    if makeHistoryHashMismatchedFiles:
-#        pass
-    
-    if verbose:
-        print('files missing from target folder---',st_files)
-        print('files missing from source folder---',ts_files)
-        print('directories missing from target folder---',st_dirs)
-        print('directories missing from target folder---',ts_dirs)
-    
-    sync_missing_files_source_to_dest(st_files,st_dirs,sourcePrefix,targetPrefix)
-    sync_missing_files_source_to_dest(ts_files,ts_dirs,targetPrefix,sourcePrefix)
-    #start='F:\\data\\manual backups\\thumbdrives\\pv\\'
-
-#l = ['C:\\','D:\\','F:\\','G:\\','H:\\','I:\\','J:\\']
-#start='data\\code'
-def loadFileHashes(startpath,folder_prefix='',file_appendix=''):
-    #is not localized
-    pathname = []
-    hashes = []
-    with open(folder_prefix + '\\' + os.path.relpath(startpath,folder_prefix) + file_appendix + '.files_hashes.txt','r') as f:
-        data = '0'
-        while data != '':
-            s = f.readline()
-            s = s.replace('\n','')
-            if s=='':
-                break
-            s1, s2 = s.split('|')
-            pathname.append(s1)
-            hashes.append(s2)
-    return [pathname,hashes]
-    
-def getdeduplicationlist(startpath,folder_prefix='',file_appendix='',loadHashesFromFile=False,getfilestoremoveonly=True,removeFiles=False):
-    print('deduplicating')
-    print('------loading hash file------------')
-    if loadHashesFromFile:
-        pathname,hashes = loadFileHashes(startpath,folder_prefix,file_appendix)
-    else:
-        makeChecksumFiles(startpath,folder_prefix,file_appendix)
-        pathname,hashes = loadFileHashes(startpath,folder_prefix,file_appendix)
-    fileCrossReferenceIndexList = []
-    logFile = None
-    if removeFiles:
-        logFile = open('SyncerlogFile.txt','w')
-            
-    #add exclusion thingy if needed in the future...otherwise just run through them verbatim
-    print('------looking for duplicates------')
-    for i,file in enumerate(pathname):
-        fileCrossReferenceIndexList.append([i])
-        for j,second_file in enumerate(pathname):
-            if i==j:
-                continue
-            if hashes[i]==hashes[j]:
-                fileCrossReferenceIndexList[-1].append(j)
-    #fix this with translation back to file names
-    #optional with prefix or without probably be nice
-    equivalentFileList = []
-    print('building duplicate list')
-    for f in fileCrossReferenceIndexList:
-        short_list = []
-        for g in f:
-            short_list.append(pathname[g])
-        if not getfilestoremoveonly:
-            equivalentFileList.append(short_list)
-        else:
-            equivalentFileList.append(short_list[1:])
-            #turn this off for now
-            '''
-            if False:
-                print('----removing files------')
-                for s in short_list[1:]:
-                    
-                    print('---removing---',s)
-                    logFile.write(str('---removing---'+s))
-                    try:
-                        os.remove(s)
-                    except FileNotFoundError:
-                        print("File not found",s)
-                        logFile.write(str("File not found:"+s))
-                    except PermissionError:
-                        print("Permission Error",s)
-                        logFile.write(str("File not found:"+s))
-            '''
-
-    
-    return equivalentFileList
-
-def folder_diff(sourceAbsPath,sourcePrefix,targetAbsPath,targetPrefix):
-    pass
-#---main sync stuff--------------------------------------------------
-current_time = 0
-
-key = "test key"
-
-memory_input = []
-memory_value = []
-
-derangement_list = []
-derangement_size = 0
-
-#-----------------------------functions------------------------------
-def memoize(f):
-
-    def inner(n):
-        i=0
-        try:
-            i = memory_input.index(n)
-        except ValueError:
-            #print('adding value')
-            v = f(n)
-            memory_input.append(n)
-            memory_value.append(v)
-            return v
-        #print('recalling from memory')
-        return memory_value[i]
-        
-    return inner
-
-#---------------------------functions------------------------------
 alphalist=[chr(i) for i in range(256)]
 
-def array_index(arr, indices):
-    if len(indices)==0:
-        return arr
-    return multiget_rec(arr[indices[0]], indices[1:])
+def cycleselect(n):
+    #0-14  first (2,2,2 cycles)   n/5     1,n/5    next,n%5
+    #15+90  104     u,v    n/6   0-14, 0-5      0-14/5  0-3, 0-4  sorted and ordered backwards
+    #second (2,4 cycles) 15+90+40 145
+    #third (3,3 cycles) 145-255 110 (last 10 clipped off)
+    #(6 cycles)
 
-def bitInvert(a):
-    return ['1' if i=='0' else '0' for i in bin(int(a.hex(),base=16))[2:]]
+    cycles4 = [
+	[1, 2, 3, 4],
+	[1, 2, 4, 3],
+	[1, 3, 2, 4],
+	[1, 3, 4, 2],
+	[1, 4, 2, 3],
+	[1, 4, 3, 2]]
+               
+    if n<15:
+        cycles = []
+        u,v = divmod(n,5)
+        cyclelist = [2,3,4,5,6]
+        cycles.append([1,cyclelist.pop(v)])
+        cycles.append([cyclelist.pop(0),cyclelist.pop(u)])
+        cycles.append([cyclelist.pop(0),cyclelist.pop(0)])
+        return cycles
+    
+    if n<(15+90):
+        a = (n-15)
+        #0-14, 0-5
+        u,v = divmod(a,6)
+        cycles = []
+        #0-3,0-4
+        x,y = divmod(u+1,5)
+        #print(u,v)  
+        cyclelist = [1,2,3,4,5,6]
+        x,y = x if x < y else y,x if x > y else y
+        cycles.append([cyclelist.pop(y),cyclelist.pop(x)])
+        cc = cycles4[v]
+        cycles.append([cyclelist[cc[0]-1],
+                       cyclelist[cc[1]-1],
+                       cyclelist[cc[2]-1],
+                       cyclelist[cc[3]-1]])
+        return cycles
+    
+    if n<(15+90+40):
+        cycles = []
+        cyclePerm2by2,z = divmod(n-(15+90),10)
+        perm1,perm2 = divmod(cyclePerm2by2,2)
+        nchoosekchart = [ [1,2,3],[1,3,4],[1,4,5],[1,5,6],
+                          [1,2,4],[1,3,5],[1,4,6],
+                          [1,2,5],[1,3,6],
+                          [1,2,6]
+                          ]
+                          
+        cycles2 = [
+            [1, 2, 3],
+            [1, 3, 2],
+        ]
+        xx,yy,zz = nchoosekchart[z]
+        cyclelist = [1,2,3,4,5,6]
+        if not perm1:
+            cycles.append([xx,yy,zz])
+        else:
+            cycles.append([xx,zz,yy])
+
+        cyclelist.remove(xx)
+        cyclelist.remove(yy)
+        cyclelist.remove(zz)
+        if not perm2:
+            cycles.append([cyclelist[0], cyclelist[1], cyclelist[2]])
+        else:
+            cycles.append([cyclelist[0], cyclelist[2], cyclelist[1]])
+        return cycles
+    
+    z = n - 145
+    cycles = []
+    #0-4,0-23
+    a,b = divmod(z,4*3*2)
+    #0-3,0-5
+    c,d = divmod(b,3*2)
+    #0-2,0-1
+    e,f = divmod(d,2)
+    cyclelist=[2,3,4,5,6]
+    cycle = [1]
+    cycle.append(cyclelist.pop(a))
+    cycle.append(cyclelist.pop(c))
+    cycle.append(cyclelist.pop(e))
+    cycle.append(cyclelist.pop(f))
+    cycle.append(cyclelist.pop(0))
+    cycles.append(cycle)
+    return cycles
 
 def bitstring_to_bytes(s):
     return int(s, 2).to_bytes((len(s) + 7) // 8, byteorder='little')
-
-def diff(fileList, folder1, folder2):
-    for f in fileList:
-        with open(str(folder1) + '\\' + f, 'rb') as file1, open(str(folder2) + '\\' + f, 'rb') as file2:
-            data1 = file1.read()
-            data2 = file2.read()
-
-        if data1 != data2:
-            print(f," Files do not match.")
-        else:
-            print(f," Files match.")
 
 def getbinval(v):
     val = alphalist.index(v)
@@ -263,357 +399,312 @@ def getbinval(v):
     b = '0'*(8-len(v)) + v
     return b
 
+
+def getbytebinval(v):
+    v = bin(v)[2:]
+    b = '0'*(8-len(v)) + v
+    return b
+
 def gettextval(v):
     return alphalist[int("0b"+"".join(v),2)]
-
-def intToPaddedBitString(i):
-    b = bin(i)[2:]
-    return str('0'*(8-len(b)) + b)
-
-def linear(a,y):
-    #a*x mod 2**16 accepts 2 16 bit strings w/ front clipped off
-    a = xor(a,'1010101010101010')
-    #print(a,y)
-    ai = int(a,2)
-    yi = int(y,2)
-    return (ai*yi) % (2**16)
-
-def recursive_flatten(arr):
-    l = []
-    for i in range(len(arr)):
-        isFlat = False
-        try:
-            if len(arr[i]) != 0:
-                l = l + recursive_flatten(arr[i])
-        except TypeError:
-            isFlat = True
-        if isFlat:
-            l.append(arr[i])
-    return l
-
-def xor(i,j):
-    s = ''
-    for a,b in zip(i,j):
-        if a=='1' and b=='1':
-            s = s + '0'
-        if a=='1' and b=='0':
-            s = s + '1'
-        if a=='0' and b=='1':
-            s = s + '1'
-        if a=='0' and b=='0':
-            s = s + '0'
-    return s
-
-#-----------------------------derangement functions------------------------------
-def applyDerangement(d,bits):
-    #apply 8 bit derangement
-    derangement = derangement_list[d]
-    output_bits = [int(bits[i]) for i in range(len(bits))]
-    m = numpy.identity(len(bits))
     
-    for i,j in enumerate(derangement):
-        m[i][i] = 0
-        m[i][j] = 1
+def cyclemult(vec,cycles):
+    b = [ vec[i] for i in range(len(vec))]
+    for cycle in cycles:
+        b[cycle[1]-1] = vec[cycle[0]-1]
+        if len(cycle) > 2:
+            for c in range(len(cycle[1:])):
+                b[cycle[c+1]-1] = vec[cycle[c]-1]
+        b[cycle[0]-1] = vec[cycle[-1]-1]
+    return b
 
-    return numpy.matmul(m,output_bits)
+def inversecycle(cycles):
+    inversecycles = []
+    for cycle in cycles:
+        inversecycles.append(list(reversed(cycle)))
+    return inversecycles
 
-def applyReverseDerangement(d,bits):
-    #apply 8 bit derangement
-    derangement = derangement_list[d]
-    output_bits = [int(bits[i]) for i in range(len(bits))]
-    m = numpy.identity(len(bits))
-   
-    for i,j in enumerate(derangement):
-        m[i][i] = 0
-        m[i][j] = 1
-
-    m = numpy.linalg.inv(m)
-    
-    return numpy.matmul(m,output_bits)
-
-def get_derangements(n):
-    numbers = [i for i in range(n)]
-    print('----------',numbers,'------------')
-    print(numbers)
-    
-    import itertools
-    z = [i for i in itertools.permutations(numbers)]
-    d = []
-    count_by = [ [ 0 for i in range(n)] for j in range(n)  ]
-    sums = [ 0 for i in range(n)]
-    for i in z:
-        f = True
-        for j in range(n):
-            if i[j]==j:
-                f = False
-        if f:
-            d.append(list(i))
-            for j in range(n):
-                index = i[j]
-                count_by[j][index] = count_by[j][index] + 1
-                sums[j] = sums[j] + index
-        #print(i)
-    return d
-
-@memoize 
-def get_derangement_count(n):
-    if n<0:
-        raise
-    if n==0:
-        return 1
-    if n==1:
-        return 0
-    return (n-1)*(get_derangement_count(n-1)+get_derangement_count(n-2))
-
-#-----------------------------text encrypt/decrypt------------------------------
 def text_decrypt(text,key):
+    if len(text)%3!=0:
+        print('length mismatch error')
+        return []
     t = len(text)
     k = len(key)
 
-    data = text
+    if t < 6:
+        return []
+    if k < 4:
+        return []
+    m = float(t)/float(k)
+    val = (4.0/3.0)*t
+    k = key
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    #24 bits so 6 bits or 3 text characters per 4 key text characters
+    #expand key out to fit 4:3 ratio
+    
+    z = []
+    kcount = 0
+    for a in range(0,len(text),3):
+        ba = getbinval(text[a])
+        bb = getbinval(text[a+1])
+        bc = getbinval(text[a+2])
+        kcount = kcount + 4
+        cya = inversecycle(cycleselect(alphalist.index(k[kcount])))
+        cyb = inversecycle(cycleselect(alphalist.index(k[kcount+1])))
+        cyc = inversecycle(cycleselect(alphalist.index(k[kcount+2])))
+        cyd = inversecycle(cycleselect(alphalist.index(k[kcount+3])))
+        v1, v2, v3, v4 = ba[0:6], ba[6:] + bb[0:4], bb[4:] + bc[0:2], bc[2:]
+        resulta = cyclemult(v1,cya)
+        resultb = cyclemult(v2,cyb)
+        resultc = cyclemult(v3,cyc)
+        resultd = cyclemult(v4,cyd)
+        text1 = resulta + resultb[0:2]
+        text2 = resultb[2:] + resultc[0:4]
+        text3 = resultc[4:] + resultd
+        z.append(gettextval(text1))
+        z.append(gettextval(text2))
+        z.append(gettextval(text3))
+    return "".join(z)
 
-    i = 0
-    offset = 0
-    offset1 = 0
-    ciphbytes = []
-    for d in data:
-        kbit0 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-        i = (i + 1) % k
-        kbit1 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-        i = (i + 1) % k
+def text_decrypt_from_bytes_for_header(text,key):
+    if len(text)%3!=0:
+        print('length mismatch error')
+        return []
+    t = len(text)
+    k = len(key)
+    print('----------text-decrypt-from-bytes------:',text)
 
-        offset = bin(offset)[2:]
-        offset = linear(kbit0+kbit1,offset)
-        if offset > derangement_size:
-            offset1 = offset - derangement_size
-            ciphbytes.append(applyReverseDerangement(offset,intToPaddedBitString(d)))
-            ciphbytes[-1] = applyReverseDerangement(offset1,ciphbytes[-1])
-        else:
-            ciphbytes.append(applyReverseDerangement(offset,intToPaddedBitString(d)))
-
-    ciphbits = "".join(((str(int(i))) for i in recursive_flatten(ciphbytes)))
-
-    b = bytes()
-
-    for i in range(len(ciphbits)//8):
-        b = b + bytes([int(ciphbits[8*i:8*(i+1)],2)])
-
-    return b
+    if t < 6:
+        return []
+    if k < 4:
+        return []
+    m = float(t)/float(k)
+    val = (4.0/3.0)*t
+    k = key
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    #24 bits so 6 bits or 3 text characters per 4 key text characters
+    #expand key out to fit 4:3 ratio
+    
+    z = []
+    kcount = 0
+    for a in range(0,len(text),3):
+        ba = getbytebinval(text[a])
+        bb = getbytebinval(text[a+1])
+        bc = getbytebinval(text[a+2])
+        kcount = kcount + 4
+        cya = inversecycle(cycleselect(alphalist.index(k[kcount])))
+        cyb = inversecycle(cycleselect(alphalist.index(k[kcount+1])))
+        cyc = inversecycle(cycleselect(alphalist.index(k[kcount+2])))
+        cyd = inversecycle(cycleselect(alphalist.index(k[kcount+3])))
+        v1, v2, v3, v4 = ba[0:6], ba[6:] + bb[0:4], bb[4:] + bc[0:2], bc[2:]
+        resulta = cyclemult(v1,cya)
+        resultb = cyclemult(v2,cyb)
+        resultc = cyclemult(v3,cyc)
+        resultd = cyclemult(v4,cyd)
+        text1 = resulta + resultb[0:2]
+        text2 = resultb[2:] + resultc[0:4]
+        text3 = resultc[4:] + resultd
+        z.append(int("0b"+"".join(text1),2))
+        z.append(int("0b"+"".join(text2),2))
+        z.append(int("0b"+"".join(text3),2))
+    return z
 
 def text_encrypt(text,key):
+    text = text + '_'*(3 - (len(text) % 3))
     t = len(text)
     k = len(key)
+
     if t < 6:
-        raise
+        return []
     if k < 4:
-        raise
+        return []
+    
+    m = float(t)/float(k)
+    
+    val = (4.0/3.0)*t
+    
+    k = key
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    #24 bits so 6 bits or 3 text characters per 4 key text characters
+    #expand key out to fit 4:3 ratio
+    
+    z = []
+    kcount = 0
+    for a in range(0,len(text),3):
+        #print('-------------------------',a,'--------------------------')
+        #6 bits * 4 = 24 bits total
+        #8 bits * 3 = 3 letters at a time
+        #
+        #print(text[a],text[a+1],text[a+2])
+        ba = getbinval(text[a])
+        bb = getbinval(text[a+1])
+        bc = getbinval(text[a+2])
 
-    data = str(len(text)) + ',' + text
+        kcount = kcount + 4
 
-    i = 0
-    offset = 0
-    offset1 = 0
-    ciphbytes = []
-    for d in data:
-        kbit0 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-        i = (i + 1) % k
-        kbit1 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-        i = (i + 1) % k
-        dd = getbinval(d)
+        #print(ba,bb,bc)
+        cya = cycleselect(alphalist.index(k[kcount]))
+        cyb = cycleselect(alphalist.index(k[kcount+1]))
+        cyc = cycleselect(alphalist.index(k[kcount+2]))
+        cyd = cycleselect(alphalist.index(k[kcount+3]))
 
-        offset = bin(offset)[2:]
-        offset = linear(kbit0+kbit1,offset)
-        if offset > derangement_size:
-            offset1 = offset - derangement_size
-            ciphbytes.append(applyDerangement(offset,dd))
-            ciphbytes[-1] = applyDerangement(offset1,ciphbytes[-1])
-        else:
-            ciphbytes.append(applyDerangement(offset,dd))
+        #print(cya,cyb,cyc,cyd)
+        v1, v2, v3, v4 = ba[0:6], ba[6:] + bb[0:4], bb[4:] + bc[0:2], bc[2:]
 
-    ciphbits = "".join(((str(int(i))) for i in recursive_flatten(ciphbytes)))
+        #print(v1, v2, v3, v4)
+        resulta = cyclemult(v1,cya)
+        resultb = cyclemult(v2,cyb)
+        resultc = cyclemult(v3,cyc)
+        resultd = cyclemult(v4,cyd)
 
-    b = bytes()
+        #print(resulta, resultb, resultc, resultd)
+        text1 = resulta + resultb[0:2]
+        text2 = resultb[2:] + resultc[0:4]
+        text3 = resultc[4:] + resultd
 
-    for i in range(len(ciphbits)//8):
-        b = b + bytes([int(ciphbits[8*i:8*(i+1)],2)])
+        #print(text1,text2,text3)
+        #print('')
+        z.append(gettextval(text1))
+        z.append(gettextval(text2))
+        z.append(gettextval(text3))
+    return "".join(z)
 
-    return b
-
-
-#-----------------------------file/header functions------------------------------
-def get_next_parsed_entry(z):
-    z = z.lstrip()
+def get_next_directory_list_parsed_entry(z):
+    #relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz
+    #print(len(z))
     firstBracket = z.find('[')
-    if z[0] == '|':
-        return -1,z[firstBracket+1:]
+    if firstBracket==-1:
+        return [-1,-1]
+    idx = firstBracket + 1
+    idx2 = z[idx:].find(',')
+    directory_entry_length = int(z[idx:idx+idx2])
+    entry=z[idx+idx2+2:idx+idx2+2+directory_entry_length]
+
+    idx4 = z[idx+idx2+2+directory_entry_length:].find(']')
+
+    return [directory_entry_length,entry],z[idx+idx2+2+directory_entry_length+idx+1:]
+
+
+def get_next_file_list_parsed_entry(z):
+    #relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz
+    #print(len(z))
+    firstBracket = z.find('[')
+    #print(firstBracket)
     if firstBracket==-1:
         return [-1,-1]
     idx = firstBracket + 1
     #get string
     state = 0
     firstparenth, startint, secondstartint, file, count1, count2 = 0,0,0,'',0,0
+    relativepathlength=0
+    relativepath_index_end = 0
+    sizeend=0
     z = z.replace('\\\\','\\')
-    while(state <= 4):
+    while(state <= 3):
         #file string
         if(state == 0):
-            if(z[idx]=='\''):
-                firstparenth = idx
+            if(z[idx]==','):
+                #read file path length and file name
+                relativepath_index=idx
+                relative_file_name_length=int(z[firstBracket+1:relativepath_index])
+                relativepath = z[idx+3:idx+2+relative_file_name_length+1]
+                relativepath_index_end = idx+2+relative_file_name_length+1+2
+                idx = relativepath_index_end
                 state = state + 1
-        elif(state == 1):
-            if(z[idx]=='\''):
-                file = z[firstparenth+1:idx]
+                print(relative_file_name_length,relativepath)
+        elif (state == 1):
+            if(z[idx]==','):
+                print(idx,relativepath_index_end,relative_file_name_length)
+                
+                rolling_crypted_size_count = int(z[relativepath_index_end+1:idx])
+                rolling_crypted_size_count_index = idx
                 state = state + 1
         elif (state == 2):
             if(z[idx]==','):
-                startint = idx
+                crypted_size_index = idx
+                crypted_size = int(z[rolling_crypted_size_count_index+1:idx])
                 state = state + 1
         elif (state == 3):
-            if(z[idx]==','):
-                #print('z------------',z)
-                #print(z[startint+1:idx])
-                count1 = int(z[startint+1:idx])
-                secondstartint = idx
-                state = state + 1
-        elif (state == 4):
             if(z[idx]==']'):
-                #print(z[startint+1:idx])
-                count2 = int(z[secondstartint+1:idx])
+                sz = int(z[crypted_size_index + 1:idx])
                 state = state + 1
         idx = idx + 1
 
-    return [file,count1,count2], z[idx+1:]
+    return [relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz], z[idx+1:]
 
-def get_next_directory_entry(z):
-    firstQuote = z.find('\'')
-    if firstQuote==-1:
-        return [-1,-1]
-    
-    idx = firstQuote + 1
-    z = z[idx:]
-    secondQuote = z.find('\'')
-    
-    if secondQuote == -1:
-        return [-1,-1]
-    s = z[0:secondQuote]
-    s = s.replace('\\\\','\\')
-    return s, z[secondQuote+1+len(', '):]
-    
-def get_header_file_sizes(storage_file_name,key):
-    with open(storage_file_name,'rb') as storage_file:
-        k = len(key)
-        data = storage_file.read(1000)
-        i = 0
-        offset = 0
-        offset1 = 0
-        ciphbytes = []
-        ciphbitstring = ''
-        decoded_byte_string = b''
-        #print('data',data)
-        for d in data:
-            kbit0 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-            i = (i + 1) % k
-            kbit1 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-            i = (i + 1) % k
-
-            offset = bin(offset)[2:]
-            offset = linear(kbit0+kbit1,offset)
-            if offset > derangement_size:
-                offset1 = offset - derangement_size
-                ciphbyte = applyReverseDerangement(offset,intToPaddedBitString(d))
-                ciphbyte = applyReverseDerangement(offset1,ciphbyte)
-            else:
-                ciphbyte = applyReverseDerangement(offset,intToPaddedBitString(d))
-
-            ciphbitstring = "".join((str(int(i)) for i in ciphbyte))
-            print(decoded_byte_string)
-            cbs = bytes([int(ciphbitstring,2)])
-            
-
-            if cbs==b',':
-                print('break')
-                break
-
-            decoded_byte_string = decoded_byte_string + cbs
-
-        return int(decoded_byte_string)
-
-def get_files_directory(startpath):
-    #walk file directory making a relative path list of each file
-    if not os.path.isdir(startpath):
-        return False
-
-    listOfFiles = []
-    dirpaths = []
-    rolling_count = 0
-    for (dirpath, dirnames, filenames) in os.walk(startpath):
-        if not dirpath in dirnames:
-            dirpaths.append(dirpath)
-        for file in filenames:
-            sz = os.path.getsize(os.path.join(dirpath, file))
-
-            #startpathlength = len(str(os.path.join(startpath)))
-            relativepath = str(os.path.join(dirpath, file))
-
-            listOfFiles += [ [relativepath, rolling_count, sz] ]
-            rolling_count += sz
-    return listOfFiles,dirpaths
-
-def decrypt_file_list(storage_file_name,key):
-    header_length = get_header_file_sizes(storage_file_name,key)
-    with open(storage_file_name,'rb') as storage_file:
-        storage_file.seek(len(str(header_length))+1)
-        crypt_header = storage_file.read(header_length)
-        print('----------list_folder_files------------')
-        print('---crypt_header----------------')
-        print(crypt_header)
-        
-        listOfFiles,dirList = decrypt_header(crypt_header,key)
-        print('------listOfFiles--------------')
-        print(listOfFiles)
-        print('------dirOfFiles---------------')
-        print(dirList)
-    return listOfFiles,dirList
-    
-def decrypt_header(s,key):
-    #fails on bunch of empty folders and nothing else
-    #ie empty file list
-    #print('header pre decrypt header',s)
-    header = text_decrypt(s,key).decode('utf-8')
-    #print('header post decrypt header',header)
+def parse_directory_list_string(header):
+    #print(header)
     header = header.rstrip('_')
     firstBracket = header.find('[')
     lastBracket = header.rfind(']')
     if firstBracket!=0 and lastBracket!= len(header):
         return []
     header = header[1:-1]
-    z = get_next_parsed_entry(header)
+    #print(header)
+    #print(len(header))
+    z = get_next_directory_list_parsed_entry(header)
     entry,header = z
     l = []
     while entry != -1:
         l.append(entry)
-        #print('l',l)
-        entry,header = get_next_parsed_entry(header)
-        #print('entry----------',entry)
-        #print('header---------',header)
-    nextBracket = header.find('[')
-    header = header[nextBracket+1:]
-    d = []
-    entry,header = get_next_directory_entry(header)
+        #print(entry,'entry length-', len(entry[0]))
+        print(l,z,entry,header)
+        entry,header = get_next_directory_list_parsed_entry(z)
+    return l
+
+def parse_file_list_string(header):
+
+    print(header)
+    header = header.rstrip('_')
+    firstBracket = header.find('[')
+    lastBracket = header.rfind(']')
+    if firstBracket!=0 and lastBracket!= len(header):
+        return []
+    header = header[1:-1]
+    #print(header)
+    #print(len(header))
+    print(header)
+    z = get_next_file_list_parsed_entry(header)
+    entry,header = z
+    print(z,header,entry)
+    l = []
     while entry != -1:
-        d.append(entry)
-        entry,header = get_next_directory_entry(header)
-        
-    return l,d
-
-def decrypt_file_from_storage(start_pos, filename, filesize, encrypted_locker_filename, key):
-    #decrypt_file
-    #check that this works
-    sz = filesize
-    k = len(key)
-
-    data = None
-    chunksize = 1024*1024
+        l.append(entry)
+        print(l,z,entry,header)
+        #print(entry,'entry length-', len(entry[0]))
+        entry,header = get_next_file_list_parsed_entry(header)
+    return l  
     
+def decrypt_file_from_storage(start_pos, filename, crypted_filesize, sz, encrypted_locker_filename, key):
+    k = key
+
+    if len(k) < 4:
+        return []
+    data = None
+    chunksize = 240
+    bytesread = 0
+    filechunks = crypted_filesize // 240
+    fileSz = ( crypted_filesize % 240 )
+    if (crypted_filesize % 240 != 0):
+        print('Decrypted file:',filename,' is not the correct padded length.')
+        raise
+    chunksize = 240
+    m = float(chunksize)/float(len(key))
+    val = (4.0/3.0)*chunksize
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    
+    #split
+    import os
+    print(filename)
+    print(os.path.dirname(filename))
     try:
         os.makedirs(os.path.dirname(filename))
     except FileExistsError:
@@ -626,146 +717,363 @@ def decrypt_file_from_storage(start_pos, filename, filesize, encrypted_locker_fi
         
         with open(filename,mode='wb') as fo:
 
-            data = f.read(filesize)
-            #print(data)
-
-            i = 0
-            offset = 0
-            offset1 = 0
-            
-            for d in data:
-                ciphbytes = []
-                kbit0 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-                i = (i + 1) % k
-                kbit1 = "".join(['0'*(8-len(getbinval(key[i]))) + getbinval(key[i])])
-                i = (i + 1) % k
-
-                offset = bin(offset)[2:]
-                offset = linear(kbit0+kbit1,offset)
+            for z in range(filechunks):
+                #print(z,fileSz)
                 
-                if offset > derangement_size:
-                    offset1 = offset - derangement_size
-                    ciphbytes.append(applyDerangement(offset,intToPaddedBitString(d)))
-                    ciphbytes[-1] = applyDerangement(offset1,ciphbytes[-1])
-                else:
-                    ciphbytes.append(applyDerangement(offset,intToPaddedBitString(d)))
+                data = f.read(chunksize)
+                #print(data)
+                ciphchunk = []
+                #240 bytes
+                # zip(data,k)
+                # 24 bits each
+                # or 3 bytes
+                # 1920 bits or 80 sets of 24        or 80 sets of 3 bytes
+                for i in range(80):
+                    databytes = data[(i*3):(i*3)+3]
+                    keys = k[(i*4):(i*4)+4]
 
-                for z in ciphbytes:
-                    fo.write(bytes([int(''.join([str(int(j)) for j in z]),2)]))
+                    #print(databytes,keys)
+                    bindatachunks = ['0'*(8-len(bin(b)[2:])) + bin(b)[2:] for b in databytes]
+                    keychunks =  [getbinval(b) for b in keys]
 
-def get_tick():
-    global current_time
-    new_time = time.perf_counter()
-    elapsed = new_time - current_time
-    current_time = elapsed
-    return elapsed
+                    #print(bindatachunks)
+                    #print(keychunks)
 
-def encrypt_file_for_storage(filename, storage_file, key):
-    k = len(key)
-    byte_key = key.encode('utf-8')
+                    #print(bindatachunks,keychunks)
+                    try:
+                        bindatachunks = [bindatachunks[0][0:6],
+                                  bindatachunks[0][6:] + bindatachunks[1][0:4],
+                                  bindatachunks[1][4:] + bindatachunks[2][0:2],
+                                  bindatachunks[2][2:]]
+                    except Exception:
+                        print(i)
+                        print(z)
+                        print(filechunks)
+                        
+                        
+                    #print(bindatachunks)
+                    
+                    keyCycles = []
+                    
+                    for ke in keys:
+                        keyCycles.append(inversecycle(cycleselect(alphalist.index(ke))))
+                        
+                    #print(keyCycles)
+                    #print('filechunks: ',z, 'ciphcount: ', ciphcount,'  ', filechunks,' i: ',i,' 80')
+                    ciphchunks = [ cyclemult(bindatachunks[ciphcount],keyCycles[ciphcount]) for ciphcount in range(4)]
+                    #print(ciphchunks)
+                    ciphbinstrings = [ ciphchunks[0] + ciphchunks[1][0:2],
+                                       ciphchunks[1][2:] + ciphchunks[2][0:4],
+                                       ciphchunks[2][4:] + ciphchunks[3]]
+
+                    #print(ciphbinstrings)
+                    ciphbytes = [bitstring_to_bytes("".join(ciphbinstrings[0])),
+                                bitstring_to_bytes("".join(ciphbinstrings[1])),
+                                bitstring_to_bytes("".join(ciphbinstrings[2]))]
+                    #print(ciphbytes)
+
+                    if z!=filechunks-1:                      
+                        fo.write(ciphbytes[0])
+                        fo.write(ciphbytes[1])
+                        fo.write(ciphbytes[2])
+                    else:
+                        #32byte block   32,33,34  35 byte file
+                        #test this for off by one
+                        currentByteBlock = z*chunksize + i*3
+                        #print('------------',i,'-----------------',currentByteBlock)
+                        
+                        if (currentByteBlock - sz) >= 0:
+                            #check that this breaks out of the function
+                            break    
+                        elif (currentByteBlock+1 - sz) == 0:
+                            fo.write(ciphbytes[0])
+                        elif (currentByteBlock+2 - sz) == 0:
+                            fo.write(ciphbytes[0])
+                            fo.write(ciphbytes[1])
+                        else:
+                            fo.write(ciphbytes[0])
+                            fo.write(ciphbytes[1])
+                            fo.write(ciphbytes[2])
+                
+def encrypt_file_for_storage(filename, encrypted_file_handle, key):
+    # need a filesize header on encrypted file to deal with length mismatch
+    # pads size to 
+    k = key
+    if len(k) < 4:
+        return []
     sz = os.path.getsize(filename)
-    chunksize = 1024*1024
+    data = None
+    chunksize = 240
+    fileSz = ( sz % 240 )
     bytesread = 0
-    current_key = 0
-    offset = 0
+    filechunks = sz // 240
+    chunksize = 240
+    m = float(chunksize)/float(len(key))
+    val = (4.0/3.0)*chunksize
+
+    k = key
+
+    if len(k) < 4:
+        return []
+    data = None
     
+    bytesread = 0
+    
+    if (sz % 240 != 0):
+        filechunks = filechunks + 1
+    
+    while (len(k) < val):
+        k = k + key
+    k = k + key
+    lenbinsz = len(bin(sz)[2:])
+    lenbinbytesz = len(bin(sz)[2:]) // 8
+    paddedbinsz = '0'*((lenbinbytesz*8)-lenbinsz) + (bin(sz)[2:])
     with open(filename,mode='rb') as f:
-        intsz = bin(sz)[2:]
 
-        data = 'start'
-        offset = 0
-        offset1 = 0
-        i = 0
-        while not data==b'':
-            data = f.read(chunksize)
-            #print('len of data',len(data),end='')
-
-            for ii,d in enumerate(data):
-                ciphbytes = []
-                if ii%10000 == 0:
-                    print(ii,'\t',end='')
-                kbit0 = intToPaddedBitString(byte_key[i])
-                i = (i + 1) % k
-                kbit1 = intToPaddedBitString(byte_key[i])
-                i = (i + 1) % k
-
-                offset = bin(offset)[2:]
-                offset = linear(kbit0+kbit1,offset)
+        endchunk = False
+        while not endchunk:
                 
-                if offset > derangement_size:
-                    offset1 = offset - derangement_size
-                    ciphbytes.append(applyDerangement(offset,intToPaddedBitString(d)))
-                    ciphbytes[-1] = applyDerangement(offset1,ciphbytes[-1])
-                else:
-                    ciphbytes.append(applyDerangement(offset,intToPaddedBitString(d)))
+            data = f.read(chunksize)
+            if len(data) != 240:
+                endchunk = True
+                padding = bytes('_'*(240-len(data)),'utf-8')
+                data = data + padding
 
-                for z in ciphbytes:
-                    storage_file.write(bytes([int(''.join([str(int(j)) for j in z]),2)]))            
+            ciphchunk = []
+                #240 bytes
+                # zip(data,k)
+                # 24 bits each
+                # or 3 bytes
+                # 1920 bits or 80 sets of 24
+            for i in range(80):
+                databytes = data[(i*3):(i*3)+3]
+                keys = k[(i*4):(i*4)+4]
+
+                #print(databytes,keys)
+                datachunks = ['0'*(8-len(bin(b)[2:])) + bin(b)[2:] for b in databytes]
+                keychunks =  [getbinval(b) for b in keys]
+    
+                datachunks = [datachunks[0][0:6],
+                                  datachunks[0][6:] + datachunks[1][0:4],
+                                  datachunks[1][4:] + datachunks[2][0:2],
+                                  datachunks[2][2:]]
+
+                keyCycles = []
+                for ke in keys:
+                    keyCycles.append(cycleselect(alphalist.index(ke)))
+                #print(keyCycles)
+                ciphchunks = [ cyclemult(datachunks[iii],keyCycles[iii]) for iii in range(4)]
+                #print(ciphchunks)
+                ciphbinstrings = [ ciphchunks[0] + ciphchunks[1][0:2],
+                                       ciphchunks[1][2:] + ciphchunks[2][0:4],
+                                       ciphchunks[2][4:] + ciphchunks[3]]
+
+                #print(ciphbinstrings)
+                ciphbytes = [bitstring_to_bytes("".join(ciphbinstrings[0])),
+                                bitstring_to_bytes("".join(ciphbinstrings[1])),
+                                bitstring_to_bytes("".join(ciphbinstrings[2]))]
+                #print(ciphbytes)
+                                            
+                encrypted_file_handle.write(ciphbytes[0])
+                encrypted_file_handle.write(ciphbytes[1])
+                encrypted_file_handle.write(ciphbytes[2])
+
+
+def list_folder_files(storage_file_name,key):
+    header_length, crypt_header_size = get_header_file_sizes(storage_file_name,key)
+    with open(storage_file_name,'rb') as storage_file:
+        storage_file.seek(len(str(header_length))+len(str(crypt_header_size))+2)
+        crypt_header = storage_file.read(crypt_header_size)
+        #print('----------list_folder_files------------')
+        print('---crypt_header----------------')
+        print(crypt_header)
+        
+        listOfFiles = decrypt_header(crypt_header,key)
+        print('------listOfFiles--------------')
+        print(listOfFiles)
+    return listOfFiles
+
+def get_header_string_val_from_bytes_in_array(t,i):
+    l = []
+    while t[i]!=0:
+        #print('-----------------------',sf[i])
+        #print(type(sf[i]))
+        #chr(sf[i])
+        #print('33')
+        l.append(chr(t[i]))
+        i = i + 1
+    i = i + 1
+    print(l)
+    return int(''.join(l)),i
+
+def get_header(storage_file_name,key):
+    #text_decrypt_from_bytes_for_header(text,key)
+    with open(storage_file_name,'rb') as storage_file:
+        sf = storage_file.read(240)
+        text = text_decrypt_from_bytes_for_header(sf,key)
+        print('--------------------------sf:',sf)
+        print(text)
+        print(type(text))
+        index = 0
+        file_directory_length,index = get_header_string_val_from_bytes_in_array(text,index)
+        file_list_length,index = get_header_string_val_from_bytes_in_array(text,index)
+        dirs_list_length,index = get_header_string_val_from_bytes_in_array(text,index)
+        print('--------file_list_length:',file_list_length)
+        print('--------dirs_list_length:',dirs_list_length)
+        print('--------file_directory_length:',file_directory_length)
+        print('--------------------------index:',index)
+        storage_file.seek(0)
+        total_encrypted_header_length = index+file_directory_length + (3 - ((index+file_directory_length) % 3))
+        sf = storage_file.read(total_encrypted_header_length)
+        print('--------------------------sf:',sf)
+        print('text--------')
+        text = text_decrypt_from_bytes_for_header(sf,key)
+        print('----------text',text)
+        list_of_files_string = ''.join([alphalist[i] for i in text[index+1:index+1+file_list_length]])
+        list_of_dirs_string = ''.join([alphalist[i] for i in text[index+1+file_list_length+2:-2]])    #to account for extra brackets
+        print(index)
+        print('list_of_files_string-----------------',list_of_files_string)
+        print('list_of_dirs_string-----------------',list_of_dirs_string)
+        list_of_dirs_string = list_of_dirs_string.rstrip('_')
+        print(list_of_dirs_string)
+        list_of_files = parse_file_list_string(list_of_files_string)
+        #TODO fix this later
+        #list_of_dirs = parse_directory_list_string(list_of_dirs_string)
+        
+    return file_list_length,dirs_list_length,file_directory_length,list_of_files,list_of_dirs_string,total_encrypted_header_length
+
 
 def decrypt_folder(new_folder_name,storage_file_name,key):
-    listofFiles,dir_list = decrypt_file_list(storage_file_name,key)
-    start_offset = get_header_file_sizes(storage_file_name,key)
-    print('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<decrypt<<<<<<<<<<<<<<<<<<<<<<<')
-    start_offset = start_offset + len(str(start_offset)) + 1
-    print(start_offset)
-    print('----------list_folder_files----------')
-    print(listofFiles)
-    print('----------dir_list-------------------')
-    print(dir_list)
-    for d in dir_list:
-        print(d)
-        try:
-            os.makedirs(new_folder_name+'//'+d)
-        except FileExistsError:
-            pass
-        except FileNotFoundError:
-            pass
+    #TODO make empty directories
+    result = get_header(storage_file_name,key)
+    #file_list_length,dirs_list_length,file_directory_length,list_of_files,list_of_dirs,total_encrypted_header_length+1
+    file_list_length,dirs_list_length,file_directory_length,list_of_files,list_of_dirs,start_offset=result[0],result[1],result[2],result[3],result[4],result[5]
 
-    for filetuple in listofFiles:
+    for file_tuple in list_of_files:
         #start_pos, filename, filesize, encrypted_locker_filename, key
-        print('--------------------------------',new_folder_name+'//'+filetuple[0],start_offset+filetuple[1])
-        decrypt_file_from_storage(start_offset+filetuple[1], new_folder_name+ '//'+filetuple[0], filetuple[2], storage_file_name, key)
+        
+        relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz = file_tuple[0],file_tuple[1],file_tuple[2],file_tuple[3],file_tuple[4]
+        
+        #print('--------------------------------',new_folder_name+relativepath,start_offset)
+        print('-------------------file tuple----------------------',file_tuple)
+        decrypt_file_from_storage(start_offset+rolling_crypted_size_count, new_folder_name+relativepath, crypted_size, sz, storage_file_name, key)
+        #for i in range(10):
+        #    decrypt_file_from_storage(start_offset+rolling_crypted_size_count-5+i, new_folder_name+relativepath+str(i), crypted_size, storage_file_name, key)
+        #break
+
     
-def encrypt_folder(startpath,storage_file_name,key):
+def encrypt_folder(startpath,prefix,storage_file_name,key):
     print('----encrypt_folder_step------')
-    file_list,dir_list = get_files_directory(startpath)
-    full_header = str(file_list)+'|'+str(dir_list)
-    header_length = len(full_header)
-    print('---')
-    print(file_list)
-    print('---')
-    print(dir_list)
-    print('---')
-    file_sizes_crypted = text_encrypt(full_header,key)
+    file_directory = get_files_directory(startpath,prefix)
     
+    print('file_list-------------',file_directory)
+    file_list,dirs = file_directory[0],file_directory[1]
     print(file_list)
-    print('---header--length----------')
-    print(header_length)
-    print('------------------------')
+    print(dirs)
+    relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz = file_list[0],file_list[1],file_list[2],file_list[3],file_list[4]
+    print('crypted header size-----',len(text_encrypt(str(file_directory),key)),len(str(file_directory)))
+    #s = sum((f[2] for f in file_list))
+    file_directory_length = len(str(file_directory))
+    file_list_length = len(str(file_list))
+    dirs_length = len(str(dirs))
+
+    header = str(file_directory_length) + str('\0') + \
+            str(file_list_length) + str('\0') + \
+            str(dirs_length) + str('\0') +  \
+            str(file_directory) + str('\0')
+    
+    encrypted_header = text_encrypt(header,key)
+    
+    encrypted_headers_bytes = bytes([ord(s) for s in encrypted_header])
     
     with open(storage_file_name,'wb') as storage_file:
-        #check for length mismatch
-        storage_file.write(file_sizes_crypted)
+        storage_file.write(encrypted_headers_bytes)
         for current_file_header in file_list:
-            print(os.path.basename(current_file_header[0]))
-            encrypt_file_for_storage(current_file_header[0], storage_file, key)
+            print(current_file_header)
+            relative_file_name_length,relativepath, rolling_crypted_size_count, crypted_size, sz = current_file_header[0],current_file_header[1],current_file_header[2],current_file_header[3],current_file_header[4]
+            print('encrypting--------------',os.path.basename(relativepath))
+            encrypt_file_for_storage(prefix + '\\' + relativepath, storage_file, key)
 
+'''
+        print('-------------listOfFiles-------------------')
+        for i in listOfFiles:
+            print(i)
+    
+    print('----sf---------------------')
+    print(sf)
+    print(len(sf))
+    print('---------------------------')
+    print(headerzeroindex)
+    print('---------------------------')
+    print(filesizezero)
+    print('--header_length-------------------------')
+    print(header_length)
+    print('---crypt_header----------------')
+    print(crypt_header)
+    print('-----header----------------')
+    print(header)
+    print('--------headerzeroindex+filesizezero+2+header_length------------')
+    print(headerzeroindex+filesizezero+2+header_length,headerzeroindex,filesizezero)
+    print('-----------------')
+    print(whole_file_size)
+    print('---------------------------')
+'''
+    
+#for i in a:
+#    print(i)
+#    encrypt_file(i,i+'.ciph','randomkeytesta')
+#    decrypt_file(i+'.ciph',i+'.ciph.deciph','randomkeytesta')
 
+#print(get_files_directory("abc"))
+#encrypt_file('inputtext.txt', "asldfkj.txt", "test key")
+#decrypt_file('asldfkj.txt', "asldfkj2.txt", "test key")
+import sys
+#print(alphalist)
+encryptOrDecrypt = input('(e)ncrypt or (d)ecrypt a folder?')
 
-derangement_list = get_derangements(8)
-derangement_size = len(derangement_list)
+if encryptOrDecrypt=='e':
+    folder = input('enter full folder path')
+    prefix = input('enter folder prefix')
+    binfile = input('bin file')
+    key = input('enter key')
+    encrypt_folder(folder, prefix, binfile, key)
+elif encryptOrDecrypt=='d':
+    folder = input('enter folder name')
+    binfile = input('bin file')
+    key = input('enter key')
+    decrypt_folder(folder, binfile, key)
 
+'''
 folder = input('enter folder name')
 binfile = input('bin file')
 key = input('enter key')
+decrypt_folder(folder, binfile, key)
+'''
 
-encrypt_folder('test',binfile,key)
-
-new_folder = input('enter new folder name')
-
-decrypt_folder('test out',binfile,key)
-
-get_one_way_diff_list(a,b)
+#aa = encrypt_folder("test folder","testfolder.fre","test key")
 
 
+#decrypt_folder("new folder 2","testfolder.fre","test key")
+#z = [i[0] for i in get_files_directory('test folder')]
+#print(z)
+#diff(z,'test folder','new folder 2')
+#header_length, crypt_header_size = get_header_file_sizes('testfolder.fre','test key')
+#start_offset = crypt_header_size + len(str(header_length)+'\0') + len(str(crypt_header_size)+'\0')
+#print(header_length,crypt_header_size,start_offset)
+#listofFiles = list_folder_files('testfolder.fre','test key')
+#print(listofFiles)
+#with open('testfolder.fre','rb') as f:
+#    f.seek(start_offset)
+#    z=f.read(1570)
+#    print(z)
+    
+#decrypt_file_from_storage(0+start_offset, 'f.py',1571,'testfolder.fre', 'test key')
+#decrypt_file_from_storage(1571+start_offset, 'a.py', 451, 'testfolder.fre', 'test key')
 
+#decrypt_file_from_storage(start_pos, filename, filesize, encrypted_locker_filename, key)
+
+#print(list_folder_files("testfolder.fre","test key"))
+#print(z)
+#a = json.dumps(z)
+#b = json.loads(a)
+#print(z==b)
