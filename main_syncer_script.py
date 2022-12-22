@@ -49,8 +49,12 @@ def makeChecksumFiles(startpath,folder_prefix='',file_appendix=''):
     sorted(files)
     sorted(dirs)
     hashes = []
+    print(folder_prefix)
+    print(os.path.relpath(startpath,folder_prefix))
+    print(file_appendix)
     with open(folder_prefix + '\\' + os.path.relpath(startpath,folder_prefix) + file_appendix + '.files_hashes.txt','w') as f:
         for i in files:
+            #probably a little buggy
             h = checksum_file_hexdigest(i)
             hashes.append(h)
             f.write(i + '|' + str(h) + '\n')
@@ -142,7 +146,8 @@ def loadFileHashes(startpath,folder_prefix='',file_appendix=''):
             if s=='':
                 break
             s1, s2 = s.split('|')
-            pathname.append(s1)
+            z = os.path.relpath(s1,folder_prefix)
+            pathname.append(z)
             hashes.append(s2)
     return [pathname,hashes]
     
@@ -201,19 +206,57 @@ def getdeduplicationlist(startpath,folder_prefix='',file_appendix='',loadHashesF
     
     return equivalentFileList
 
-#print(getdeduplicationlist('C:\\data\\code','C:\\','',False,True,True))
+def checkDirectorySimilarityWithHashes(hashFileLeftPath,hashFileLeftFname,hashFileRightPath,hashFileRightFname,hashFileLeftPrefix='',hashFileRightPrefix='',fileAppendixLeft='',fileAppendixRight='',loadHashesFromFile=False):
 
-print(getdeduplicationlist('C:\\data\\code','C:\\',''))
 
-#for i in range(len(l)-1):
-
-#makeChecksumFiles()
-#with open('fileEquivalentListToRemove.txt','w') as f:
+    print('------making hash file------------')
+    #if loadHashesFromFile:
+    #    lpathname,lhashes = loadFileHashes(hashFileLeft,hashFileLeftPrefix,fileAppendixLeft)
+    #    rpathname,rhashes = loadFileHashes(hashFileRight,hashFileRightPrefix,fileAppendixRight)
+    #else:
+        
+    makeChecksumFiles(hashFileLeftPath,hashFileLeftPrefix)
+    makeChecksumFiles(hashFileRightPath,hashFileRightPrefix)
+    print('------loading hash file------------')
+    lpathname,lhashes = loadFileHashes(hashFileLeftPath,hashFileLeftPrefix)
+    rpathname,rhashes = loadFileHashes(hashFileRightPath,hashFileRightPrefix)
+    #lpathname = [os.path.relpath(i,'F:\\data\\code\\old_code_chunk_1_2022') for i in lpathname]
+    #rpathname = [os.path.relpath(i,'F:\\data\\code\\old_code_chunk_1_2022_dold_code_chunk_1_2022') for i in rpathname]
     
-    #f.write(str(getdeduplicationlist('C:\\data\\code','C:\\')))
+    l_diff_list = get_one_way_diff_list(lpathname,rpathname)
+    r_diff_list = get_one_way_diff_list(rpathname,lpathname)
+    print('-------length of hash file--------')
+    print(l_diff_list)
+    print(r_diff_list)
+    if(len(l_diff_list)!=0 or len(r_diff_list)!=0):
+        print('diff_lists are not the same...folders are different')
+        raise
+    #add exclusion thingy if needed in the future...otherwise just run through them verbatim
+    print('------looking for hash mismatches------')
+    for i,file in enumerate(lpathname):
+        for j,second_file in enumerate(rpathname):
+            if i==j and lhashes[i]!=rhashes[j]:
+                print('-----------hash mismatch in files',file,second_file,lhashes[i],rhashes[j],'-----------------')
+                raise
+    print('directories match up')
 
 
-    #sync(l[i]+str(start),l[i],l[i+1]+str(start),l[i+1])
+checkDirectorySimilarityWithHashes('F:\\data\\code','F:\\data\\code\\code_d',\
+                                   'F:\\data\\code','F:\\data\\code\\code_test_argcode_d',\
+                                   'F:\\data\\code','F:\\data\\code')
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
